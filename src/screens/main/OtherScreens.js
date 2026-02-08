@@ -1,23 +1,69 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, SafeAreaView } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, SafeAreaView, ActivityIndicator, RefreshControl } from 'react-native';
 import { COLORS, SIZES } from '../../constants/theme';
 import { Header, Card, NotificationCard, SectionLabel, QuickAction, Button } from '../../components';
+import { useActivity } from '../../hooks/useData';
+
+const AGENT_TYPE_MAP = {
+  COMM_MANAGER: { emoji: '📧', color: COLORS.orange },
+  MONEY_BOT: { emoji: '💰', color: COLORS.success },
+  LIFE_PLANNER: { emoji: '📅', color: COLORS.info || '#3B82F6' },
+  SOCIAL_PILOT: { emoji: '📱', color: COLORS.warning },
+  HOME_COMMAND: { emoji: '🏠', color: COLORS.warning },
+  PRICE_WATCHDOG: { emoji: '🐕', color: COLORS.error },
+};
 
 // Activity Screen
 export const ActivityScreen = ({ navigation }) => {
   const [filter, setFilter] = useState('all');
+  const [refreshing, setRefreshing] = useState(false);
+  const { activities, isLoading, refetch } = useActivity();
 
-  const activities = [
-    { id: 1, emoji: '📧', color: COLORS.orange, title: 'Email Digest Generated', subtitle: '8:00 AM • 47 emails processed', day: 'today' },
-    { id: 2, emoji: '💰', color: COLORS.success, title: 'Spend Alert Triggered', subtitle: '7:45 AM • Budget threshold reached', day: 'today' },
-    { id: 3, emoji: '📅', color: COLORS.info, title: 'Morning Briefing Sent', subtitle: '7:00 AM • 4 events, 2 tasks', day: 'today' },
-    { id: 4, emoji: '📧', color: COLORS.orange, title: 'Priority Inbox Sorted', subtitle: 'Throughout day • 52 emails', day: 'yesterday' },
-    { id: 5, emoji: '💰', color: COLORS.success, title: 'Statement Scanned', subtitle: '9:15 AM • Chase credit card', day: 'yesterday' },
-    { id: 6, emoji: '🏠', color: COLORS.warning, title: 'Away Mode Activated', subtitle: '6:30 PM • Geofence exit', day: 'yesterday' },
-  ];
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await refetch();
+    setRefreshing(false);
+  };
 
-  const todayActivities = activities.filter(a => a.day === 'today');
-  const yesterdayActivities = activities.filter(a => a.day === 'yesterday');
+  const getAgentInfo = (activity) => {
+    const type = activity.agent?.type || activity.agentType;
+    return AGENT_TYPE_MAP[type] || { emoji: '📊', color: COLORS.orange };
+  };
+
+  const formatTime = (dateString) => {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    const now = new Date();
+    const isToday = date.toDateString() === now.toDateString();
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const isYesterday = date.toDateString() === yesterday.toDateString();
+
+    const time = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+    if (isToday) return time;
+    if (isYesterday) return `Yesterday ${time}`;
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' + time;
+  };
+
+  const groupByDay = (items) => {
+    const groups = {};
+    const now = new Date();
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    items.forEach(item => {
+      const date = new Date(item.createdAt);
+      let key;
+      if (date.toDateString() === now.toDateString()) key = 'Today';
+      else if (date.toDateString() === yesterday.toDateString()) key = 'Yesterday';
+      else key = date.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(item);
+    });
+    return groups;
+  };
+
+  const grouped = groupByDay(activities);
 
   return (
     <View style={styles.container}>
@@ -32,11 +78,14 @@ export const ActivityScreen = ({ navigation }) => {
         style={styles.content}
         contentContainerStyle={styles.contentContainer}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
       >
         {/* Filters */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
           <View style={styles.filterChips}>
-            {['All', '📧 Comm', '💰 Money', '📅 Life', '📱 Social', '🏠 Home'].map((label, index) => (
+            {['All', '📧 Comm', '💰 Money', '📅 Life', '📱 Social', '🏠 Home', '🐕 Watchdog'].map((label, index) => (
               <TouchableOpacity
                 key={label}
                 style={[styles.filterChip, index === 0 && styles.filterChipActive]}
@@ -47,35 +96,37 @@ export const ActivityScreen = ({ navigation }) => {
           </View>
         </ScrollView>
 
-        <SectionLabel>Today</SectionLabel>
-        {todayActivities.map((activity) => (
-          <Card key={activity.id}>
-            <View style={styles.activityItem}>
-              <View style={[styles.activityIcon, { backgroundColor: activity.color }]}>
-                <Text style={styles.activityEmoji}>{activity.emoji}</Text>
-              </View>
-              <View style={styles.activityContent}>
-                <Text style={styles.activityTitle}>{activity.title}</Text>
-                <Text style={styles.activitySubtitle}>{activity.subtitle}</Text>
-              </View>
-            </View>
-          </Card>
-        ))}
-
-        <SectionLabel>Yesterday</SectionLabel>
-        {yesterdayActivities.map((activity) => (
-          <Card key={activity.id} style={{ opacity: 0.8 }}>
-            <View style={styles.activityItem}>
-              <View style={[styles.activityIcon, { backgroundColor: activity.color }]}>
-                <Text style={styles.activityEmoji}>{activity.emoji}</Text>
-              </View>
-              <View style={styles.activityContent}>
-                <Text style={styles.activityTitle}>{activity.title}</Text>
-                <Text style={styles.activitySubtitle}>{activity.subtitle}</Text>
-              </View>
-            </View>
-          </Card>
-        ))}
+        {isLoading ? (
+          <ActivityIndicator color={COLORS.orange} style={{ padding: 40 }} />
+        ) : activities.length === 0 ? (
+          <View style={{ alignItems: 'center', paddingVertical: 40 }}>
+            <Text style={{ fontSize: 48, marginBottom: 12 }}>📊</Text>
+            <Text style={{ fontSize: SIZES.fontMd, fontWeight: '600', color: COLORS.black }}>No activity yet</Text>
+            <Text style={{ fontSize: SIZES.fontSm, color: COLORS.textSecondary, marginTop: 4 }}>Start using your agents to see activity here</Text>
+          </View>
+        ) : (
+          Object.entries(grouped).map(([day, items]) => (
+            <React.Fragment key={day}>
+              <SectionLabel>{day}</SectionLabel>
+              {items.map((activity) => {
+                const info = getAgentInfo(activity);
+                return (
+                  <Card key={activity.id} style={day !== 'Today' ? { opacity: 0.8 } : undefined}>
+                    <View style={styles.activityItem}>
+                      <View style={[styles.activityIcon, { backgroundColor: info.color }]}>
+                        <Text style={styles.activityEmoji}>{info.emoji}</Text>
+                      </View>
+                      <View style={styles.activityContent}>
+                        <Text style={styles.activityTitle}>{activity.action || activity.description}</Text>
+                        <Text style={styles.activitySubtitle}>{formatTime(activity.createdAt)}{activity.description && activity.action ? ` • ${activity.description}` : ''}</Text>
+                      </View>
+                    </View>
+                  </Card>
+                );
+              })}
+            </React.Fragment>
+          ))
+        )}
       </ScrollView>
     </View>
   );

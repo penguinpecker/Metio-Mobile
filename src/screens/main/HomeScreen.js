@@ -1,6 +1,7 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, ActivityIndicator, RefreshControl } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS, SIZES, AGENTS } from '../../constants/theme';
 import {
   Header,
@@ -14,18 +15,11 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { useAgents, useStats, usePendingActions, useActivity } from '../../hooks/useData';
 
-const AGENT_EMOJIS = {
-  COMM_MANAGER: '📧',
-  MONEY_BOT: '💰',
-  LIFE_PLANNER: '📅',
-  SOCIAL_PILOT: '📱',
-  HOME_COMMAND: '🏠',
-};
-
 const HomeScreen = ({ navigation }) => {
   const insets = useSafeAreaInsets();
   const [showVoiceModal, setShowVoiceModal] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [agentStatuses, setAgentStatuses] = useState({});
 
   const { user } = useAuth();
   const { agents, isLoading: agentsLoading, refetch: refetchAgents } = useAgents();
@@ -33,14 +27,37 @@ const HomeScreen = ({ navigation }) => {
   const { actions: pendingApprovals, approveAction, rejectAction, refetch: refetchActions } = usePendingActions();
   const { activities, refetch: refetchActivities } = useActivity();
 
+  useEffect(() => {
+    loadStatuses();
+  }, []);
+
+  // Reload statuses when screen comes back into focus
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', loadStatuses);
+    return unsubscribe;
+  }, [navigation]);
+
+  const loadStatuses = async () => {
+    try {
+      const saved = await AsyncStorage.getItem('@metio_agent_statuses');
+      if (saved) setAgentStatuses(JSON.parse(saved));
+    } catch (err) {
+      console.error('Error loading statuses:', err);
+    }
+  };
+
+  const getStatus = (agentId) => agentStatuses[agentId] || 'active';
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([refetchAgents(), refetchStats(), refetchActions(), refetchActivities()]);
+    await Promise.all([refetchAgents(), refetchStats(), refetchActions(), refetchActivities(), loadStatuses()]);
     setRefreshing(false);
   }, []);
 
+  const activeCount = AGENTS.filter(a => getStatus(a.id) === 'active').length;
+
   const metrics = [
-    { value: String(stats.activeAgents || 0), label: 'Active Agents' },
+    { value: String(activeCount), label: 'Active Agents' },
     { value: String(stats.tasksToday || 0), label: 'Tasks Today' },
     { value: String(stats.pendingApprovals || 0), label: 'Pending' },
   ];
@@ -54,7 +71,7 @@ const HomeScreen = ({ navigation }) => {
     <View style={styles.container}>
       <Header
         variant="orange"
-        title={"COMMAND\nCENTER"}
+        title={"COMMAND CENTER"}
         statusText="System Active"
         statusActive={true}
         showAvatar={true}
@@ -75,21 +92,17 @@ const HomeScreen = ({ navigation }) => {
 
         {/* Agents Grid */}
         <SectionLabel>🤖 Your Agents</SectionLabel>
-        {agentsLoading ? (
-          <ActivityIndicator color={COLORS.orange} style={{ padding: 20 }} />
-        ) : (
-          <View style={styles.agentGrid}>
-            {agents.slice(0, 4).map((agent) => (
-              <AgentGridCard
-                key={agent.id}
-                emoji={AGENT_EMOJIS[agent.type] || '🤖'}
-                name={agent.name}
-                status={agent.status === 'ACTIVE' ? 'active' : 'paused'}
-                onPress={() => navigation.navigate('AgentDetail', { agentId: agent.id })}
-              />
-            ))}
-          </View>
-        )}
+        <View style={styles.agentGrid}>
+          {AGENTS.map((agent) => (
+            <AgentGridCard
+              key={agent.id}
+              emoji={agent.emoji}
+              name={agent.name}
+              status={getStatus(agent.id)}
+              onPress={() => navigation.navigate('AgentDetail', { agent, status: getStatus(agent.id) })}
+            />
+          ))}
+        </View>
 
         {/* Pending Approvals */}
         <SectionLabel>⏳ Pending Approvals ({pendingApprovals.length})</SectionLabel>
@@ -116,6 +129,16 @@ const HomeScreen = ({ navigation }) => {
           ))
         )}
 
+        {/* Notifications Link */}
+        <TouchableOpacity
+          style={styles.notificationsLink}
+          onPress={() => navigation.navigate('Notifications')}
+        >
+          <Text style={styles.notificationsLinkEmoji}>🔔</Text>
+          <Text style={styles.notificationsLinkText}>View All Notifications</Text>
+          <Text style={styles.notificationsLinkArrow}>→</Text>
+        </TouchableOpacity>
+
         {/* Recent Activity */}
         <SectionLabel>📊 Recent Activity</SectionLabel>
         {activities.length === 0 ? (
@@ -127,7 +150,7 @@ const HomeScreen = ({ navigation }) => {
             <Card key={activity.id || index}>
               <View style={styles.activityItem}>
                 <Text style={styles.activityEmoji}>
-                  {AGENT_EMOJIS[activity.agent?.type] || '📊'}
+                  {{ COMM_MANAGER: '📧', MONEY_BOT: '💰', LIFE_PLANNER: '📅', SOCIAL_PILOT: '📱', HOME_COMMAND: '🏠', PRICE_WATCHDOG: '🐕' }[activity.agent?.type] || '📊'}
                 </Text>
                 <View style={styles.activityContent}>
                   <Text style={styles.activityTitle}>{activity.action}</Text>
@@ -199,10 +222,11 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.gray,
     borderTopLeftRadius: SIZES.radiusXl,
     borderTopRightRadius: SIZES.radiusXl,
-    marginTop: -20,
+    marginTop: -12,
   },
   contentContainer: {
     padding: SIZES.lg,
+    paddingTop: SIZES.xl,
   },
   agentGrid: {
     flexDirection: 'row',
@@ -235,6 +259,31 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     textAlign: 'center',
     padding: SIZES.md,
+  },
+  notificationsLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.white,
+    borderRadius: SIZES.radiusMd,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    padding: SIZES.md,
+    marginTop: SIZES.sm,
+    marginBottom: SIZES.sm,
+    gap: SIZES.sm,
+  },
+  notificationsLinkEmoji: {
+    fontSize: 18,
+  },
+  notificationsLinkText: {
+    flex: 1,
+    fontSize: SIZES.fontMd,
+    fontWeight: '500',
+    color: COLORS.black,
+  },
+  notificationsLinkArrow: {
+    fontSize: 18,
+    color: COLORS.textSecondary,
   },
   fab: {
     position: 'absolute',

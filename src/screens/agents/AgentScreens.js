@@ -18,12 +18,38 @@ import {
 // Agents List Screen
 export const AgentsListScreen = ({ navigation }) => {
   const [filter, setFilter] = useState('all'); // all, active, paused
+  const [agentStatuses, setAgentStatuses] = useState({});
+  const [loading, setLoading] = useState(true);
 
-  const agentStatuses = ['active', 'active', 'active', 'paused', 'active'];
+  useEffect(() => {
+    loadStatuses();
+    const unsubscribe = navigation.addListener('focus', loadStatuses);
+    return unsubscribe;
+  }, [navigation]);
 
-  const filteredAgents = AGENTS.filter((_, index) => {
+  const loadStatuses = async () => {
+    try {
+      const saved = await AsyncStorage.getItem('@metio_agent_statuses');
+      if (saved) {
+        setAgentStatuses(JSON.parse(saved));
+      } else {
+        // Default: all active
+        const defaults = {};
+        AGENTS.forEach(a => { defaults[a.id] = 'active'; });
+        setAgentStatuses(defaults);
+      }
+    } catch (err) {
+      console.error('Error loading agent statuses:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getStatus = (agentId) => agentStatuses[agentId] || 'active';
+
+  const filteredAgents = AGENTS.filter((agent) => {
     if (filter === 'all') return true;
-    return agentStatuses[index] === filter;
+    return getStatus(agent.id) === filter;
   });
 
   return (
@@ -67,18 +93,14 @@ export const AgentsListScreen = ({ navigation }) => {
         </View>
 
         {/* Agents List */}
-        {filteredAgents.map((agent, index) => (
+        {filteredAgents.map((agent) => (
           <AgentCard
             key={agent.id}
             emoji={agent.emoji}
             name={agent.name}
             description={agent.features.join(' • ')}
-            status={agentStatuses[AGENTS.indexOf(agent)]}
-            stats={[
-              { value: '47', label: 'today' },
-              { value: '98%', label: 'accuracy' },
-            ]}
-            onPress={() => navigation.navigate('AgentDetail', { agent, status: agentStatuses[AGENTS.indexOf(agent)] })}
+            status={getStatus(agent.id)}
+            onPress={() => navigation.navigate('AgentDetail', { agent, status: getStatus(agent.id) })}
           />
         ))}
 
@@ -109,6 +131,7 @@ export const AgentsListScreen = ({ navigation }) => {
 // Agent Detail Screen
 export const AgentDetailScreen = ({ route, navigation }) => {
   const { agent, status = 'active' } = route.params;
+  const [agentStatus, setAgentStatus] = useState(status);
   const [features, setFeatures] = useState({
     feature1: true,
     feature2: true,
@@ -119,11 +142,47 @@ export const AgentDetailScreen = ({ route, navigation }) => {
   const [activities, setActivities] = useState([]);
   const [emailStats, setEmailStats] = useState({ total: 0, urgent: 0, action: 0 });
 
+  // Price Watchdog state
+  const [watchlist, setWatchlist] = useState([]);
+  const [recentAlerts, setRecentAlerts] = useState([]);
+
   const API_BASE_URL = 'https://metio-backend-production.up.railway.app/api/v1';
+  const isWatchdog = agent.id === 'price-watchdog';
+
+  const toggleStatus = async () => {
+    const newStatus = agentStatus === 'active' ? 'paused' : 'active';
+    setAgentStatus(newStatus);
+    try {
+      const saved = await AsyncStorage.getItem('@metio_agent_statuses');
+      const statuses = saved ? JSON.parse(saved) : {};
+      statuses[agent.id] = newStatus;
+      await AsyncStorage.setItem('@metio_agent_statuses', JSON.stringify(statuses));
+    } catch (err) {
+      console.error('Error saving agent status:', err);
+    }
+  };
 
   useEffect(() => {
-    fetchAgentData();
+    if (isWatchdog) {
+      fetchWatchdogData();
+    } else {
+      fetchAgentData();
+    }
   }, []);
+
+  // Price Watchdog data loader
+  const fetchWatchdogData = async () => {
+    try {
+      const watchlistData = await AsyncStorage.getItem('@metio_watchlist');
+      const alertsData = await AsyncStorage.getItem('@metio_price_alerts');
+      if (watchlistData) setWatchlist(JSON.parse(watchlistData));
+      if (alertsData) setRecentAlerts(JSON.parse(alertsData).slice(0, 5));
+    } catch (err) {
+      console.error('Error fetching watchdog data:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const fetchAgentData = async () => {
     try {
@@ -176,11 +235,26 @@ export const AgentDetailScreen = ({ route, navigation }) => {
     return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
   };
 
-  const metrics = [
-    { value: emailStats.total.toString(), label: 'Processed' },
-    { value: `${emailStats.urgent + emailStats.action}`, label: 'Need Action' },
-    { value: '98%', label: 'Accuracy' },
-  ];
+  // Watchdog metrics
+  const watchdogDrops = watchlist.filter(i => i.priceDropped).length;
+  const watchdogSaved = watchlist.reduce((sum, item) => {
+    if (item.priceDropped && item.originalPrice > item.currentPrice) {
+      return sum + (item.originalPrice - item.currentPrice);
+    }
+    return sum;
+  }, 0);
+
+  const metrics = isWatchdog
+    ? [
+        { value: watchlist.length.toString(), label: 'Tracking' },
+        { value: watchdogDrops.toString(), label: 'Price Drops', color: COLORS.success },
+        { value: watchdogSaved > 0 ? `₹${(watchdogSaved / 1000).toFixed(1)}K` : '₹0', label: 'Saved' },
+      ]
+    : [
+        { value: emailStats.total.toString(), label: 'Processed' },
+        { value: `${emailStats.urgent + emailStats.action}`, label: 'Need Action' },
+        { value: '98%', label: 'Accuracy' },
+      ];
 
   // Map agent type to feature screens
   const getFeatureScreens = () => {
@@ -195,11 +269,54 @@ export const AgentDetailScreen = ({ route, navigation }) => {
         return ['NewsBrief', 'MentionAlerts'];
       case 'home-command':
         return ['VoiceRoutines', 'AwayDetection'];
+      case 'price-watchdog':
+        return ['Watchlist', 'PriceAlerts'];
       default:
         return [null, null];
     }
   };
 
+  const getFeatureDetails = () => {
+    switch (agent.id) {
+      case 'comm-manager':
+        return [
+          { icon: '📋', subtitle: 'Summary at 8 AM' },
+          { icon: '📥', subtitle: 'Auto-sort incoming' },
+        ];
+      case 'money-bot':
+        return [
+          { icon: '💳', subtitle: 'Track spending' },
+          { icon: '📊', subtitle: 'Monthly budgets' },
+        ];
+      case 'life-planner':
+        return [
+          { icon: '📅', subtitle: 'AI time suggestions' },
+          { icon: '☀️', subtitle: 'Daily overview' },
+        ];
+      case 'social-pilot':
+        return [
+          { icon: '📰', subtitle: 'Curated news' },
+          { icon: '🔔', subtitle: 'Track mentions' },
+        ];
+      case 'home-command':
+        return [
+          { icon: '🗣️', subtitle: 'Voice automations' },
+          { icon: '🏠', subtitle: 'Smart detection' },
+        ];
+      case 'price-watchdog':
+        return [
+          { icon: '🐕', subtitle: 'Track product prices' },
+          { icon: '📉', subtitle: 'Drop notifications' },
+        ];
+      default:
+        return [
+          { icon: '📋', subtitle: '' },
+          { icon: '📥', subtitle: '' },
+        ];
+    }
+  };
+
+  const featureDetails = getFeatureDetails();
   const featureScreens = getFeatureScreens();
 
   const handleConnectGmail = async () => {
@@ -223,8 +340,8 @@ export const AgentDetailScreen = ({ route, navigation }) => {
         variant="orange"
         showBack={true}
         onBackPress={() => navigation.goBack()}
-        statusText={status === 'active' ? 'Active' : 'Paused'}
-        statusActive={status === 'active'}
+        statusText={agentStatus === 'active' ? 'Active' : 'Paused'}
+        statusActive={agentStatus === 'active'}
       >
         <View style={styles.agentHeaderContent}>
           <AgentIcon emoji={agent.emoji} color={agent.color} size={48} />
@@ -246,8 +363,8 @@ export const AgentDetailScreen = ({ route, navigation }) => {
             onPress={() => featureScreens[0] && navigation.navigate(featureScreens[0])}
           >
             <View style={styles.featureInfo}>
-              <Text style={styles.featureTitle}>📋 {agent.features[0]}</Text>
-              <Text style={styles.featureSubtitle}>Summary at 8 AM</Text>
+              <Text style={styles.featureTitle}>{featureDetails[0].icon} {agent.features[0]}</Text>
+              <Text style={styles.featureSubtitle}>{featureDetails[0].subtitle}</Text>
             </View>
             <View style={styles.featureRight}>
               <Text style={styles.featureArrow}>→</Text>
@@ -258,8 +375,8 @@ export const AgentDetailScreen = ({ route, navigation }) => {
             onPress={() => featureScreens[1] && navigation.navigate(featureScreens[1])}
           >
             <View style={styles.featureInfo}>
-              <Text style={styles.featureTitle}>📥 {agent.features[1]}</Text>
-              <Text style={styles.featureSubtitle}>Auto-sort incoming</Text>
+              <Text style={styles.featureTitle}>{featureDetails[1].icon} {agent.features[1]}</Text>
+              <Text style={styles.featureSubtitle}>{featureDetails[1].subtitle}</Text>
             </View>
             <View style={styles.featureRight}>
               <Text style={styles.featureArrow}>→</Text>
@@ -268,87 +385,145 @@ export const AgentDetailScreen = ({ route, navigation }) => {
         </Card>
 
         <ToggleRow
-          title="🔔 Urgent Notifications"
-          subtitle="Alert for high-priority items"
+          title={isWatchdog ? '🔔 Drop Notifications' : '🔔 Urgent Notifications'}
+          subtitle={isWatchdog ? 'Get notified on any price drop' : 'Alert for high-priority items'}
           value={features.notifications}
           onValueChange={(val) => setFeatures({ ...features, notifications: val })}
         />
 
-        <SectionLabel>Recent Activity</SectionLabel>
-        <Card>
-          {loading ? (
-            <Text style={styles.activityText}>Loading activity...</Text>
-          ) : activities.length > 0 ? (
-            activities.map((activity, index) => (
-              <View key={activity.id || index} style={styles.activityItem}>
-                <Text style={styles.activityBold}>{formatActivityTime(activity.createdAt)}</Text>
-                <Text style={styles.activityText}> — {activity.description}</Text>
-              </View>
-            ))
-          ) : (
-            <Text style={styles.activityText}>No recent activity. Start using the agent to see activity here.</Text>
-          )}
-        </Card>
-
-        <SectionLabel>Connected Accounts</SectionLabel>
-        {gmailStatus?.connected ? (
-          <Card>
-            <View style={styles.connectedAccount}>
-              <Text style={styles.connectedEmoji}>📧</Text>
-              <View style={styles.connectedInfo}>
-                <Text style={styles.connectedName}>Gmail</Text>
-                <Text style={styles.connectedEmail}>{gmailStatus.email}</Text>
-              </View>
-              <Badge text="Synced" variant="active" size="sm" />
-            </View>
-          </Card>
-        ) : (
-          <TouchableOpacity onPress={handleConnectGmail}>
+        {/* ========== PRICE WATCHDOG SPECIFIC CONTENT ========== */}
+        {isWatchdog ? (
+          <>
+            <SectionLabel>Recent Alerts</SectionLabel>
             <Card>
-              <View style={styles.connectedAccount}>
-                <Text style={styles.connectedEmoji}>📧</Text>
-                <View style={styles.connectedInfo}>
-                  <Text style={styles.connectedName}>Gmail</Text>
-                  <Text style={styles.connectedEmail}>Tap to connect</Text>
-                </View>
-                <Badge text="Connect" variant="warning" size="sm" />
-              </View>
+              {loading ? (
+                <Text style={styles.activityText}>Loading...</Text>
+              ) : recentAlerts.length > 0 ? (
+                recentAlerts.map((alert, index) => (
+                  <View key={alert.id || index} style={[styles.activityItem, { paddingVertical: 6 }]}>
+                    <Text style={{ fontSize: 16, marginRight: 8 }}>{alert.icon}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.activityBold}>{alert.title}</Text>
+                      <Text style={styles.activityText}>{alert.subtitle}</Text>
+                    </View>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.activityText}>No alerts yet. Add a product to start tracking prices!</Text>
+              )}
             </Card>
-          </TouchableOpacity>
+
+            <SectionLabel>How to Add Products</SectionLabel>
+            <Card>
+              {[
+                { step: '1', icon: '📤', text: 'Open any product on Amazon or Flipkart and tap Share' },
+                { step: '2', icon: '📱', text: 'Select Metio from the share menu' },
+                { step: '3', icon: '🐕', text: 'Done! Watchdog tracks the price and notifies you on drops' },
+              ].map((item, i) => (
+                <View key={i} style={[styles.howItWorksRow, i < 2 && { borderBottomWidth: 1, borderBottomColor: COLORS.gray }]}>
+                  <View style={styles.howStepCircle}>
+                    <Text style={styles.howStepNumber}>{item.step}</Text>
+                  </View>
+                  <Text style={{ fontSize: 20, marginRight: 8 }}>{item.icon}</Text>
+                  <Text style={styles.howStepText}>{item.text}</Text>
+                </View>
+              ))}
+            </Card>
+
+            {/* Quick add button */}
+            <TouchableOpacity 
+              style={styles.chatButton}
+              onPress={() => navigation.navigate('AddProduct')}
+            >
+              <Text style={styles.chatButtonEmoji}>➕</Text>
+              <View style={styles.chatButtonInfo}>
+                <Text style={styles.chatButtonTitle}>Add Product Manually</Text>
+                <Text style={styles.chatButtonSubtitle}>Paste a link to start tracking</Text>
+              </View>
+              <Text style={styles.chatButtonArrow}>→</Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            {/* ========== DEFAULT AGENT CONTENT ========== */}
+            <SectionLabel>Recent Activity</SectionLabel>
+            <Card>
+              {loading ? (
+                <Text style={styles.activityText}>Loading activity...</Text>
+              ) : activities.length > 0 ? (
+                activities.map((activity, index) => (
+                  <View key={activity.id || index} style={styles.activityItem}>
+                    <Text style={styles.activityBold}>{formatActivityTime(activity.createdAt)}</Text>
+                    <Text style={styles.activityText}> — {activity.description}</Text>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.activityText}>No recent activity. Start using the agent to see activity here.</Text>
+              )}
+            </Card>
+
+            <SectionLabel>Connected Accounts</SectionLabel>
+            {gmailStatus?.connected ? (
+              <Card>
+                <View style={styles.connectedAccount}>
+                  <Text style={styles.connectedEmoji}>📧</Text>
+                  <View style={styles.connectedInfo}>
+                    <Text style={styles.connectedName}>Gmail</Text>
+                    <Text style={styles.connectedEmail}>{gmailStatus.email}</Text>
+                  </View>
+                  <Badge text="Synced" variant="active" size="sm" />
+                </View>
+              </Card>
+            ) : (
+              <TouchableOpacity onPress={handleConnectGmail}>
+                <Card>
+                  <View style={styles.connectedAccount}>
+                    <Text style={styles.connectedEmoji}>📧</Text>
+                    <View style={styles.connectedInfo}>
+                      <Text style={styles.connectedName}>Gmail</Text>
+                      <Text style={styles.connectedEmail}>Tap to connect</Text>
+                    </View>
+                    <Badge text="Connect" variant="warning" size="sm" />
+                  </View>
+                </Card>
+              </TouchableOpacity>
+            )}
+
+            <Button
+              title="+ Add Another Account"
+              variant="secondary"
+              style={{ marginTop: SIZES.md }}
+            />
+
+            {/* Chat with Agent Button */}
+            <TouchableOpacity 
+              style={styles.chatButton}
+              onPress={() => navigation.navigate('AgentChat', { agent })}
+            >
+              <Text style={styles.chatButtonEmoji}>💬</Text>
+              <View style={styles.chatButtonInfo}>
+                <Text style={styles.chatButtonTitle}>Chat with {agent.name}</Text>
+                <Text style={styles.chatButtonSubtitle}>Ask questions, get insights</Text>
+              </View>
+              <Text style={styles.chatButtonArrow}>→</Text>
+            </TouchableOpacity>
+          </>
         )}
-
-        <Button
-          title="+ Add Another Account"
-          variant="secondary"
-          style={{ marginTop: SIZES.md }}
-        />
-
-        {/* Chat with Agent Button */}
-        <TouchableOpacity 
-          style={styles.chatButton}
-          onPress={() => navigation.navigate('AgentChat', { agent })}
-        >
-          <Text style={styles.chatButtonEmoji}>💬</Text>
-          <View style={styles.chatButtonInfo}>
-            <Text style={styles.chatButtonTitle}>Chat with {agent.name}</Text>
-            <Text style={styles.chatButtonSubtitle}>Ask questions, get insights</Text>
-          </View>
-          <Text style={styles.chatButtonArrow}>→</Text>
-        </TouchableOpacity>
       </ScrollView>
 
       {/* Bottom Actions */}
       <View style={styles.bottomActions}>
         <Button
-          title={status === 'active' ? '⏸️ Pause' : '▶️ Resume'}
+          title={agentStatus === 'active' ? '⏸️ Pause' : '▶️ Resume'}
           variant="secondary"
           style={{ flex: 0.4 }}
+          onPress={toggleStatus}
         />
         <Button
-          title="View Activity →"
+          title={isWatchdog ? 'View Watchlist →' : 'View Activity →'}
           variant="orange"
           style={{ flex: 0.6 }}
-          onPress={() => navigation.navigate('Activity')}
+          onPress={() => navigation.navigate(isWatchdog ? 'Watchlist' : 'Activity')}
         />
       </View>
     </View>
@@ -538,6 +713,31 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: '700',
     color: COLORS.black,
+  },
+  howItWorksRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  howStepCircle: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: COLORS.orange,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
+  },
+  howStepNumber: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: COLORS.black,
+  },
+  howStepText: {
+    flex: 1,
+    fontSize: SIZES.fontSm,
+    color: COLORS.textSecondary,
+    lineHeight: 18,
   },
 });
 

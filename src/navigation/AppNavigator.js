@@ -16,6 +16,7 @@ import { LoginScreen, SignUpScreen, ForgotPasswordScreen } from '../screens/auth
 // Main Screens
 import HomeScreen from '../screens/main/HomeScreen';
 import ChatScreen from '../screens/main/ChatScreen';
+import NotificationsScreen from '../screens/main/NotificationsScreen';
 import { ActivityScreen, NotificationPermissionScreen } from '../screens/main/OtherScreens';
 
 // Agent Screens
@@ -34,6 +35,7 @@ import { SmartSchedulingScreen as OldSmartScheduling, MorningBriefingScreen as O
 import EmailDetailScreen from '../screens/features/EmailDetailScreen';
 import { SmartSchedulingScreen, MorningBriefingScreen } from '../screens/features/LifePlannerFeatures';
 import { StatementScannerScreen, ReceiptScannerScreen, SpendingInsightsScreen, ExpenseTrackerScreen } from '../screens/features/MoneyBotFeatures';
+import { WatchlistScreen, AddProductScreen, ProductDetailScreen, PriceAlertsScreen } from '../screens/features/PriceWatchdogFeatures';
 import AgentChatScreen from '../screens/features/AgentChatScreen';
 
 const Stack = createNativeStackNavigator();
@@ -133,6 +135,7 @@ const AppNavigator = () => {
         <Stack.Screen name="AgentDetail" component={AgentDetailScreen} />
         <Stack.Screen name="DraftApproval" component={DraftApprovalScreen} />
         <Stack.Screen name="Activity" component={ActivityScreen} />
+        <Stack.Screen name="Notifications" component={NotificationsScreen} />
         
         {/* Agent Setup Flow */}
         <Stack.Screen name="AgentSetup" component={AgentSetupStep1} />
@@ -167,6 +170,12 @@ const AppNavigator = () => {
         {/* Feature Screens - Home Command */}
         <Stack.Screen name="VoiceRoutines" component={VoiceRoutinesScreen} />
         <Stack.Screen name="AwayDetection" component={AwayDetectionScreen} />
+
+        {/* Feature Screens - Price Watchdog */}
+        <Stack.Screen name="Watchlist" component={WatchlistScreen} />
+        <Stack.Screen name="AddProduct" component={AddProductScreen} />
+        <Stack.Screen name="ProductDetail" component={ProductDetailScreen} />
+        <Stack.Screen name="PriceAlerts" component={PriceAlertsScreen} />
 
         {/* Agent Chat */}
         <Stack.Screen name="AgentChat" component={AgentChatScreen} />

@@ -153,6 +153,14 @@ export const AGENTS = [
     description: 'Voice routines & away detect',
     features: ['Voice Routines', 'Away Detection'],
   },
+  {
+    id: 'price-watchdog',
+    name: 'PRICE WATCHDOG',
+    emoji: '🐕',
+    color: COLORS.error,
+    description: 'Track prices & get drop alerts',
+    features: ['My Watchlist', 'Price Alerts'],
+  },
 ];
 
 export default {
