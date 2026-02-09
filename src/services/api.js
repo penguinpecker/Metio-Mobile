@@ -281,6 +281,29 @@ export const watchlistAPI = {
 };
 
 // ==========================================
+// NEWS API (Social Pilot - News Brief)
+// ==========================================
+
+export const newsAPI = {
+  // Get top headlines by category
+  getBrief: (category = 'tech', max = 10) =>
+    apiRequest(`/news/brief?category=${category}&max=${max}`),
+
+  // Search news by keyword
+  search: (query, max = 10) =>
+    apiRequest(`/news/search?q=${encodeURIComponent(query)}&max=${max}`),
+
+  // Get AI summary of articles
+  getAISummary: (articles) => apiRequest('/news/ai-summary', {
+    method: 'POST',
+    body: JSON.stringify({ articles }),
+  }),
+
+  // Get available categories
+  getCategories: () => apiRequest('/news/categories'),
+};
+
+// ==========================================
 // HEALTH CHECK
 // ==========================================
 
@@ -294,5 +317,6 @@ export default {
   pendingActions: pendingActionsAPI,
   notifications: notificationsAPI,
   watchlist: watchlistAPI,
+  news: newsAPI,
   healthCheck,
 };

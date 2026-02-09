@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Linking } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS, SIZES, AGENTS } from '../../constants/theme';
+import { agentsAPI } from '../../services/api';
 import {
   Header,
   AgentCard,
@@ -29,17 +30,42 @@ export const AgentsListScreen = ({ navigation }) => {
 
   const loadStatuses = async () => {
     try {
-      const saved = await AsyncStorage.getItem('@metio_agent_statuses');
-      if (saved) {
-        setAgentStatuses(JSON.parse(saved));
+      // Try real API first
+      const response = await agentsAPI.getAll();
+      if (response.success && response.data?.length > 0) {
+        const statuses = {};
+        response.data.forEach(a => {
+          statuses[a.type || a.id] = a.status || 'active';
+        });
+        setAgentStatuses(statuses);
+        // Cache locally
+        await AsyncStorage.setItem('@metio_agent_statuses', JSON.stringify(statuses));
       } else {
-        // Default: all active
-        const defaults = {};
-        AGENTS.forEach(a => { defaults[a.id] = 'active'; });
-        setAgentStatuses(defaults);
+        // Fallback to AsyncStorage
+        const saved = await AsyncStorage.getItem('@metio_agent_statuses');
+        if (saved) {
+          setAgentStatuses(JSON.parse(saved));
+        } else {
+          const defaults = {};
+          AGENTS.forEach(a => { defaults[a.id] = 'active'; });
+          setAgentStatuses(defaults);
+        }
       }
     } catch (err) {
-      console.error('Error loading agent statuses:', err);
+      console.log('API unavailable, using local statuses:', err.message);
+      // Fallback to AsyncStorage
+      try {
+        const saved = await AsyncStorage.getItem('@metio_agent_statuses');
+        if (saved) {
+          setAgentStatuses(JSON.parse(saved));
+        } else {
+          const defaults = {};
+          AGENTS.forEach(a => { defaults[a.id] = 'active'; });
+          setAgentStatuses(defaults);
+        }
+      } catch (storageErr) {
+        console.error('Error loading agent statuses:', storageErr);
+      }
     } finally {
       setLoading(false);
     }
@@ -151,14 +177,34 @@ export const AgentDetailScreen = ({ route, navigation }) => {
 
   const toggleStatus = async () => {
     const newStatus = agentStatus === 'active' ? 'paused' : 'active';
-    setAgentStatus(newStatus);
+    setAgentStatus(newStatus); // Optimistic update
     try {
+      // Call real API
+      const response = newStatus === 'paused' 
+        ? await agentsAPI.pause(agent.id)
+        : await agentsAPI.resume(agent.id);
+      
+      if (!response.success) {
+        console.log('API pause/resume returned non-success, caching locally');
+      }
+      // Cache locally regardless
       const saved = await AsyncStorage.getItem('@metio_agent_statuses');
       const statuses = saved ? JSON.parse(saved) : {};
       statuses[agent.id] = newStatus;
       await AsyncStorage.setItem('@metio_agent_statuses', JSON.stringify(statuses));
     } catch (err) {
-      console.error('Error saving agent status:', err);
+      console.log('API unavailable, saving status locally:', err.message);
+      // Still save to AsyncStorage as fallback
+      try {
+        const saved = await AsyncStorage.getItem('@metio_agent_statuses');
+        const statuses = saved ? JSON.parse(saved) : {};
+        statuses[agent.id] = newStatus;
+        await AsyncStorage.setItem('@metio_agent_statuses', JSON.stringify(statuses));
+      } catch (storageErr) {
+        console.error('Error saving agent status:', storageErr);
+        // Revert optimistic update on total failure
+        setAgentStatus(agentStatus === 'active' ? 'active' : 'paused');
+      }
     }
   };
 
@@ -265,10 +311,8 @@ export const AgentDetailScreen = ({ route, navigation }) => {
         return ['ExpenseTracker', 'BudgetStatus'];
       case 'life-planner':
         return ['SmartScheduling', 'MorningBriefing'];
-      case 'social-pilot':
-        return ['NewsBrief', 'MentionAlerts'];
-      case 'home-command':
-        return ['VoiceRoutines', 'AwayDetection'];
+      case 'news-pilot':
+        return ['NewsBrief', null];
       case 'price-watchdog':
         return ['Watchlist', 'PriceAlerts'];
       default:
@@ -293,15 +337,10 @@ export const AgentDetailScreen = ({ route, navigation }) => {
           { icon: '📅', subtitle: 'AI time suggestions' },
           { icon: '☀️', subtitle: 'Daily overview' },
         ];
-      case 'social-pilot':
+      case 'news-pilot':
         return [
-          { icon: '📰', subtitle: 'Curated news' },
-          { icon: '🔔', subtitle: 'Track mentions' },
-        ];
-      case 'home-command':
-        return [
-          { icon: '🗣️', subtitle: 'Voice automations' },
-          { icon: '🏠', subtitle: 'Smart detection' },
+          { icon: '📰', subtitle: 'AI-curated headlines' },
+          { icon: '🔍', subtitle: 'Search any topic' },
         ];
       case 'price-watchdog':
         return [

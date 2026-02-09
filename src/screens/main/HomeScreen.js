@@ -14,6 +14,7 @@ import {
 } from '../../components';
 import { useAuth } from '../../context/AuthContext';
 import { useAgents, useStats, usePendingActions, useActivity } from '../../hooks/useData';
+import { agentsAPI } from '../../services/api';
 
 const HomeScreen = ({ navigation }) => {
   const insets = useSafeAreaInsets();
@@ -39,10 +40,27 @@ const HomeScreen = ({ navigation }) => {
 
   const loadStatuses = async () => {
     try {
-      const saved = await AsyncStorage.getItem('@metio_agent_statuses');
-      if (saved) setAgentStatuses(JSON.parse(saved));
+      // Try real API first
+      const response = await agentsAPI.getAll();
+      if (response.success && response.data?.length > 0) {
+        const statuses = {};
+        response.data.forEach(a => {
+          statuses[a.type || a.id] = a.status || 'active';
+        });
+        setAgentStatuses(statuses);
+        await AsyncStorage.setItem('@metio_agent_statuses', JSON.stringify(statuses));
+      } else {
+        const saved = await AsyncStorage.getItem('@metio_agent_statuses');
+        if (saved) setAgentStatuses(JSON.parse(saved));
+      }
     } catch (err) {
-      console.error('Error loading statuses:', err);
+      console.log('API unavailable, using local statuses:', err.message);
+      try {
+        const saved = await AsyncStorage.getItem('@metio_agent_statuses');
+        if (saved) setAgentStatuses(JSON.parse(saved));
+      } catch (storageErr) {
+        console.error('Error loading statuses:', storageErr);
+      }
     }
   };
 
@@ -54,7 +72,22 @@ const HomeScreen = ({ navigation }) => {
     setRefreshing(false);
   }, []);
 
-  const activeCount = AGENTS.filter(a => getStatus(a.id) === 'active').length;
+  // Use backend agents if available, otherwise fallback to local AGENTS constant
+  const displayAgents = (agents && agents.length > 0) 
+    ? AGENTS.map(localAgent => {
+        const backendAgent = agents.find(a => a.type === localAgent.id || a.id === localAgent.id);
+        return {
+          ...localAgent,
+          backendId: backendAgent?.id,
+          backendStatus: backendAgent?.status,
+        };
+      })
+    : AGENTS;
+
+  const activeCount = displayAgents.filter(a => {
+    const status = a.backendStatus || getStatus(a.id);
+    return status === 'active';
+  }).length;
 
   const metrics = [
     { value: String(activeCount), label: 'Active Agents' },
@@ -93,15 +126,18 @@ const HomeScreen = ({ navigation }) => {
         {/* Agents Grid */}
         <SectionLabel>🤖 Your Agents</SectionLabel>
         <View style={styles.agentGrid}>
-          {AGENTS.map((agent) => (
-            <AgentGridCard
-              key={agent.id}
-              emoji={agent.emoji}
-              name={agent.name}
-              status={getStatus(agent.id)}
-              onPress={() => navigation.navigate('AgentDetail', { agent, status: getStatus(agent.id) })}
-            />
-          ))}
+          {displayAgents.map((agent) => {
+            const status = agent.backendStatus || getStatus(agent.id);
+            return (
+              <AgentGridCard
+                key={agent.id}
+                emoji={agent.emoji}
+                name={agent.name}
+                status={status}
+                onPress={() => navigation.navigate('AgentDetail', { agent, status })}
+              />
+            );
+          })}
         </View>
 
         {/* Pending Approvals */}
@@ -150,7 +186,7 @@ const HomeScreen = ({ navigation }) => {
             <Card key={activity.id || index}>
               <View style={styles.activityItem}>
                 <Text style={styles.activityEmoji}>
-                  {{ COMM_MANAGER: '📧', MONEY_BOT: '💰', LIFE_PLANNER: '📅', SOCIAL_PILOT: '📱', HOME_COMMAND: '🏠', PRICE_WATCHDOG: '🐕' }[activity.agent?.type] || '📊'}
+                  {{ COMM_MANAGER: '📧', MONEY_BOT: '💰', LIFE_PLANNER: '📅', NEWS_PILOT: '📰', PRICE_WATCHDOG: '🐕' }[activity.agent?.type] || '📊'}
                 </Text>
                 <View style={styles.activityContent}>
                   <Text style={styles.activityTitle}>{activity.action}</Text>

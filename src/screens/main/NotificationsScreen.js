@@ -8,8 +8,7 @@ const AGENT_TYPE_MAP = {
   COMM_MANAGER: { emoji: '📧', color: COLORS.orange },
   MONEY_BOT: { emoji: '💰', color: COLORS.success },
   LIFE_PLANNER: { emoji: '📅', color: '#3B82F6' },
-  SOCIAL_PILOT: { emoji: '📱', color: COLORS.warning },
-  HOME_COMMAND: { emoji: '🏠', color: COLORS.warning },
+  NEWS_PILOT: { emoji: '📰', color: COLORS.warning },
   PRICE_WATCHDOG: { emoji: '🐕', color: COLORS.error },
 };
 

@@ -8,8 +8,7 @@ const AGENT_TYPE_MAP = {
   COMM_MANAGER: { emoji: '📧', color: COLORS.orange },
   MONEY_BOT: { emoji: '💰', color: COLORS.success },
   LIFE_PLANNER: { emoji: '📅', color: COLORS.info || '#3B82F6' },
-  SOCIAL_PILOT: { emoji: '📱', color: COLORS.warning },
-  HOME_COMMAND: { emoji: '🏠', color: COLORS.warning },
+  NEWS_PILOT: { emoji: '📰', color: COLORS.warning },
   PRICE_WATCHDOG: { emoji: '🐕', color: COLORS.error },
 };
 
@@ -85,7 +84,7 @@ export const ActivityScreen = ({ navigation }) => {
         {/* Filters */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
           <View style={styles.filterChips}>
-            {['All', '📧 Comm', '💰 Money', '📅 Life', '📱 Social', '🏠 Home', '🐕 Watchdog'].map((label, index) => (
+            {['All', '📧 Comm', '💰 Money', '📅 Life', '📰 News', '🐕 Watchdog'].map((label, index) => (
               <TouchableOpacity
                 key={label}
                 style={[styles.filterChip, index === 0 && styles.filterChipActive]}

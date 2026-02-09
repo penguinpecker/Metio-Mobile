@@ -31,7 +31,7 @@ import { SettingsScreen, ProfileEditScreen, HelpFAQScreen } from '../screens/set
 
 // Feature Screens
 import { EmailDigestScreen, PriorityInboxScreen } from '../screens/features/CommMoneyFeatures';
-import { SmartSchedulingScreen as OldSmartScheduling, MorningBriefingScreen as OldMorningBriefing, NewsBriefScreen, MentionAlertsScreen, VoiceRoutinesScreen, AwayDetectionScreen } from '../screens/features/LifeSocialHomeFeatures';
+import { SmartSchedulingScreen as OldSmartScheduling, MorningBriefingScreen as OldMorningBriefing, NewsBriefScreen } from '../screens/features/LifeSocialHomeFeatures';
 import EmailDetailScreen from '../screens/features/EmailDetailScreen';
 import { SmartSchedulingScreen, MorningBriefingScreen } from '../screens/features/LifePlannerFeatures';
 import { StatementScannerScreen, ReceiptScannerScreen, SpendingInsightsScreen, ExpenseTrackerScreen } from '../screens/features/MoneyBotFeatures';
@@ -163,14 +163,9 @@ const AppNavigator = () => {
         <Stack.Screen name="SmartScheduling" component={SmartSchedulingScreen} />
         <Stack.Screen name="MorningBriefing" component={MorningBriefingScreen} />
         
-        {/* Feature Screens - Social Pilot */}
+        {/* Feature Screens - News Pilot */}
         <Stack.Screen name="NewsBrief" component={NewsBriefScreen} />
-        <Stack.Screen name="MentionAlerts" component={MentionAlertsScreen} />
         
-        {/* Feature Screens - Home Command */}
-        <Stack.Screen name="VoiceRoutines" component={VoiceRoutinesScreen} />
-        <Stack.Screen name="AwayDetection" component={AwayDetectionScreen} />
-
         {/* Feature Screens - Price Watchdog */}
         <Stack.Screen name="Watchlist" component={WatchlistScreen} />
         <Stack.Screen name="AddProduct" component={AddProductScreen} />

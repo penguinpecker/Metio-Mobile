@@ -1,27 +1,102 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { COLORS, SIZES } from '../../constants/theme';
 import { Header, Card, Button, Badge } from '../../components';
+import { pendingActionsAPI } from '../../services/api';
 
 const DraftApprovalScreen = ({ navigation, route }) => {
+  const action = route.params?.action || {};
   const [isEditing, setIsEditing] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [draftText, setDraftText] = useState(
+    action.draft || action.content || action.description ||
     "Hi Sarah,\n\nThanks for following up! I've reviewed the Q1 contract and everything looks good. I'll have it signed and sent back to you within the hour.\n\nBest,\nJohn"
   );
 
-  const handleApprove = () => {
-    Alert.alert(
-      'Email Sent',
-      'Your reply has been sent successfully!',
-      [{ text: 'OK', onPress: () => navigation.goBack() }]
-    );
+  // Extract metadata from action if available
+  const senderName = action.metadata?.senderName || action.senderName || 'Sarah Chen';
+  const senderEmail = action.metadata?.senderEmail || action.senderEmail || 'sarah@acme.com';
+  const senderInitials = senderName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+  const originalMessage = action.metadata?.originalMessage || action.originalMessage ||
+    'Hi, just following up on the Q1 contract. We need your signature by EOD today. Can you please review and confirm?';
+  const originalTime = action.metadata?.receivedAt
+    ? new Date(action.metadata.receivedAt).toLocaleString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+    : action.time || 'Today at 9:15 AM';
+  const agentName = action.agentName || action.type || 'Comm Manager';
+
+  const handleApprove = async () => {
+    setLoading(true);
+    try {
+      if (action.id) {
+        // Send modifications if user edited the draft
+        const modifications = draftText !== (action.draft || action.content || action.description)
+          ? { content: draftText }
+          : null;
+        const response = await pendingActionsAPI.approve(action.id, modifications);
+        if (response.success) {
+          Alert.alert(
+            'Approved ✓',
+            'The action has been approved and sent.',
+            [{ text: 'OK', onPress: () => navigation.goBack() }]
+          );
+        } else {
+          Alert.alert('Error', response.error || 'Failed to approve. Please try again.');
+        }
+      } else {
+        // Fallback for mock data - no action ID
+        Alert.alert(
+          'Email Sent',
+          'Your reply has been sent successfully!',
+          [{ text: 'OK', onPress: () => navigation.goBack() }]
+        );
+      }
+    } catch (err) {
+      console.error('Error approving action:', err);
+      Alert.alert('Error', 'Failed to approve. Please check your connection and try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleReject = () => {
+  const handleReject = async () => {
     Alert.alert(
-      'Draft Rejected',
-      'The draft has been discarded.',
-      [{ text: 'OK', onPress: () => navigation.goBack() }]
+      'Reject Draft',
+      'Are you sure you want to reject this draft?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Reject',
+          style: 'destructive',
+          onPress: async () => {
+            setLoading(true);
+            try {
+              if (action.id) {
+                const response = await pendingActionsAPI.reject(action.id);
+                if (response.success) {
+                  Alert.alert(
+                    'Rejected',
+                    'The draft has been discarded.',
+                    [{ text: 'OK', onPress: () => navigation.goBack() }]
+                  );
+                } else {
+                  Alert.alert('Error', response.error || 'Failed to reject. Please try again.');
+                }
+              } else {
+                Alert.alert(
+                  'Draft Rejected',
+                  'The draft has been discarded.',
+                  [{ text: 'OK', onPress: () => navigation.goBack() }]
+                );
+              }
+            } catch (err) {
+              console.error('Error rejecting action:', err);
+              Alert.alert('Error', 'Failed to reject. Please check your connection and try again.');
+            } finally {
+              setLoading(false);
+            }
+          },
+        },
+      ]
     );
   };
 
@@ -45,17 +120,15 @@ const DraftApprovalScreen = ({ navigation, route }) => {
         <Card variant="outlined" style={styles.originalCard}>
           <View style={styles.senderRow}>
             <View style={styles.senderAvatar}>
-              <Text style={styles.senderInitials}>SC</Text>
+              <Text style={styles.senderInitials}>{senderInitials}</Text>
             </View>
             <View style={styles.senderInfo}>
-              <Text style={styles.senderName}>Sarah Chen</Text>
-              <Text style={styles.senderEmail}>sarah@acme.com</Text>
+              <Text style={styles.senderName}>{senderName}</Text>
+              <Text style={styles.senderEmail}>{senderEmail}</Text>
             </View>
           </View>
-          <Text style={styles.originalText}>
-            Hi, just following up on the Q1 contract. We need your signature by EOD today. Can you please review and confirm?
-          </Text>
-          <Text style={styles.originalTime}>Today at 9:15 AM</Text>
+          <Text style={styles.originalText}>{originalMessage}</Text>
+          <Text style={styles.originalTime}>{originalTime}</Text>
         </Card>
 
         {/* AI Draft */}
@@ -63,11 +136,11 @@ const DraftApprovalScreen = ({ navigation, route }) => {
         <Card variant="lavender">
           <View style={styles.draftHeader}>
             <View style={styles.aiAvatar}>
-              <Text style={styles.aiIcon}>🤖</Text>
+              <Text style={styles.aiIcon}>{action.agentEmoji || '🤖'}</Text>
             </View>
             <View style={styles.draftInfo}>
-              <Text style={styles.draftTitle}>Your Reply</Text>
-              <Text style={styles.draftSubtitle}>Generated by Comm Manager</Text>
+              <Text style={styles.draftTitle}>{action.title || 'Your Reply'}</Text>
+              <Text style={styles.draftSubtitle}>Generated by {agentName}</Text>
             </View>
           </View>
           
@@ -117,18 +190,21 @@ const DraftApprovalScreen = ({ navigation, route }) => {
           variant="secondary"
           onPress={handleReject}
           style={{ flex: 0.3 }}
+          disabled={loading}
         />
         <Button
           title="✏️ Edit"
           variant="secondary"
           onPress={() => setIsEditing(true)}
           style={{ flex: 0.3 }}
+          disabled={loading}
         />
         <Button
-          title="✓ Approve & Send"
+          title={loading ? "Sending..." : "✓ Approve & Send"}
           variant="primary"
           onPress={handleApprove}
           style={{ flex: 0.4 }}
+          disabled={loading}
         />
       </View>
     </View>

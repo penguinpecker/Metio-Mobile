@@ -129,8 +129,7 @@ const AgentChatScreen = ({ route, navigation }) => {
       case 'comm-manager': return COLORS.orange;
       case 'life-planner': return COLORS.lavender;
       case 'money-bot': return '#4CAF50';
-      case 'social-pilot': return '#2196F3';
-      case 'home-command': return '#9C27B0';
+      case 'news-pilot': return '#2196F3';
       default: return COLORS.orange;
     }
   };

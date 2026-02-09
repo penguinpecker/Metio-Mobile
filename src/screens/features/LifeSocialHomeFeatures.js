@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, ActivityIndicator, RefreshControl, Linking } from 'react-native';
 import { COLORS, SIZES } from '../../constants/theme';
 import { Header, Card, Badge, Button, SectionLabel, ToggleRow, AlertBanner } from '../../components';
+import { newsAPI } from '../../services/api';
 
 // ============== LIFE PLANNER FEATURES ==============
 
@@ -174,38 +175,87 @@ export const MorningBriefingScreen = ({ navigation }) => {
 // News Brief Screen
 export const NewsBriefScreen = ({ navigation }) => {
   const [activeCategory, setActiveCategory] = useState('tech');
+  const [articles, setArticles] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(null);
+  const [aiSummary, setAiSummary] = useState(null);
+  const [loadingSummary, setLoadingSummary] = useState(false);
 
-  const categories = ['Tech', 'Finance', 'Crypto', 'AI'];
-
-  const news = [
-    {
-      id: 1,
-      category: 'TECHCRUNCH',
-      time: '2H AGO',
-      title: 'OpenAI Launches GPT-5 with Real-Time Learning',
-      summary: 'OpenAI unveiled GPT-5 featuring breakthrough real-time learning capabilities. CEO called it "most significant leap since GPT-4."',
-      gradient: [COLORS.orange, '#FF8C42'],
-      emoji: '🤖',
-    },
-    {
-      id: 2,
-      category: 'BLOOMBERG',
-      time: '4H AGO',
-      title: 'Fed Signals Rate Cuts Coming in Q2 2025',
-      summary: 'Federal Reserve indicated rate cuts likely by mid-2025 as inflation cools. Markets rallied 2.3% on the news.',
-      gradient: [COLORS.info, COLORS.lavender],
-      emoji: '💰',
-    },
-    {
-      id: 3,
-      category: 'THE VERGE',
-      time: '5H AGO',
-      title: 'Apple Vision Pro 2 Leaks Reveal 50% Lighter Design',
-      summary: 'Leaked schematics show Apple\'s next headset significantly lighter with improved battery life and new gesture controls.',
-      gradient: [COLORS.success, '#16A34A'],
-      emoji: '🚀',
-    },
+  const categories = [
+    { id: 'all', name: 'All', emoji: '📰' },
+    { id: 'tech', name: 'Tech', emoji: '🚀' },
+    { id: 'ai', name: 'AI', emoji: '🤖' },
+    { id: 'finance', name: 'Finance', emoji: '💰' },
+    { id: 'science', name: 'Science', emoji: '🔬' },
   ];
+
+  const colorMap = {
+    AI: [COLORS.orange, '#FF8C42'],
+    Tech: [COLORS.info, COLORS.lavender],
+    Finance: [COLORS.success, '#16A34A'],
+    Science: ['#8B5CF6', '#A78BFA'],
+    Business: [COLORS.black, '#374151'],
+    General: [COLORS.textSecondary, '#6B7280'],
+  };
+
+  const fetchNews = async (category) => {
+    try {
+      setError(null);
+      const response = await newsAPI.getBrief(category, 10);
+      if (response.success && response.data) {
+        setArticles(response.data.articles || []);
+      } else {
+        setError(response.error?.message || 'Failed to load news');
+      }
+    } catch (err) {
+      console.error('Error fetching news:', err);
+      setError('Failed to load news. Check your connection.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchNews(activeCategory);
+  }, [activeCategory]);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    setAiSummary(null);
+    fetchNews(activeCategory);
+  }, [activeCategory]);
+
+  const handleCategoryPress = (catId) => {
+    if (catId !== activeCategory) {
+      setActiveCategory(catId);
+      setLoading(true);
+      setAiSummary(null);
+    }
+  };
+
+  const fetchAISummary = async () => {
+    if (!articles.length) return;
+    setLoadingSummary(true);
+    try {
+      const response = await newsAPI.getAISummary(articles.slice(0, 5));
+      if (response.success && response.data) {
+        setAiSummary(response.data);
+      }
+    } catch (err) {
+      console.error('Error fetching AI summary:', err);
+    } finally {
+      setLoadingSummary(false);
+    }
+  };
+
+  const openArticle = (url) => {
+    if (url) Linking.openURL(url);
+  };
+
+  const now = new Date();
+  const briefTime = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
 
   return (
     <View style={styles.container}>
@@ -214,293 +264,107 @@ export const NewsBriefScreen = ({ navigation }) => {
         title={"NEWS\nBRIEF"}
         showBack={true}
         onBackPress={() => navigation.goBack()}
-        rightComponent={<Badge text="9:00 AM" variant="ai" />}
+        rightComponent={<Badge text={briefTime} variant="ai" />}
       />
 
-      <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
+      <ScrollView
+        style={styles.content}
+        contentContainerStyle={styles.contentContainer}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.orange} />
+        }
+      >
         {/* Category Tabs */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryScroll}>
-          {categories.map((cat, index) => (
+          {categories.map((cat) => (
             <TouchableOpacity
-              key={cat}
-              style={[styles.categoryTab, index === 0 && styles.categoryTabActive]}
+              key={cat.id}
+              style={[styles.categoryTab, activeCategory === cat.id && styles.categoryTabActive]}
+              onPress={() => handleCategoryPress(cat.id)}
             >
-              <Text style={[styles.categoryTabText, index === 0 && styles.categoryTabTextActive]}>
-                {cat}
+              <Text style={[styles.categoryTabText, activeCategory === cat.id && styles.categoryTabTextActive]}>
+                {cat.emoji} {cat.name}
               </Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
 
-        {/* News Cards */}
-        {news.map((item) => (
-          <Card key={item.id} style={styles.newsCard}>
-            <View style={[styles.newsImage, { backgroundColor: item.gradient[0] }]}>
-              <Text style={styles.newsEmoji}>{item.emoji}</Text>
-            </View>
-            <View style={styles.newsContent}>
-              <Text style={styles.newsMeta}>{item.category} • {item.time}</Text>
-              <Text style={styles.newsTitle}>{item.title}</Text>
-              <Text style={styles.newsSummary}>{item.summary}</Text>
-            </View>
-          </Card>
-        ))}
-
-        <TouchableOpacity style={styles.moreButton}>
-          <Text style={styles.moreButtonText}>↓ 7 more headlines</Text>
-        </TouchableOpacity>
-      </ScrollView>
-    </View>
-  );
-};
-
-// Mention Alerts Screen
-export const MentionAlertsScreen = ({ navigation }) => {
-  const mentions = [
-    {
-      id: 1,
-      platform: 'Twitter',
-      platformEmoji: '🐦',
-      user: '@techcrunch',
-      followers: '12.4M',
-      text: 'Excited to see @johndoe\'s new AI project launch! This is going to change how we think about automation.',
-      time: '2h ago',
-      engagement: '+45%',
-    },
-    {
-      id: 2,
-      platform: 'LinkedIn',
-      platformEmoji: '💼',
-      user: 'Sarah Chen',
-      followers: '8.2K',
-      text: 'Just had an amazing meeting with John Doe about our Q1 partnership. Can\'t wait to share more!',
-      time: '4h ago',
-      engagement: '+23%',
-    },
-  ];
-
-  return (
-    <View style={styles.container}>
-      <Header
-        variant="orange"
-        title={"MENTION\nALERTS"}
-        showBack={true}
-        onBackPress={() => navigation.goBack()}
-        statusText="Live"
-        statusActive={true}
-      />
-
-      <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
-        <AlertBanner
-          emoji="🎉"
-          title="3 new mentions today"
-          description="Engagement up 45% compared to last week"
-          variant="success"
-        />
-
-        <SectionLabel>Recent Mentions</SectionLabel>
-        {mentions.map((mention) => (
-          <Card key={mention.id}>
-            <View style={styles.mentionHeader}>
-              <Text style={styles.mentionEmoji}>{mention.platformEmoji}</Text>
-              <View style={styles.mentionInfo}>
-                <Text style={styles.mentionUser}>{mention.user}</Text>
-                <Text style={styles.mentionFollowers}>{mention.followers} followers</Text>
-              </View>
-              <Text style={styles.mentionTime}>{mention.time}</Text>
-            </View>
-            <Text style={styles.mentionText}>{mention.text}</Text>
-            
-            <View style={styles.aiReplyBox}>
-              <View style={styles.aiReplyHeader}>
-                <Text style={styles.aiReplyLabel}>🤖 AI Suggested Reply</Text>
-              </View>
-              <Text style={styles.aiReplyText}>
-                "Thanks for the shoutout! Excited to share more details soon. 🚀"
+        {/* AI Summary */}
+        {aiSummary ? (
+          <Card style={{ backgroundColor: '#FFF8F0', borderWidth: 2, borderColor: COLORS.orange, marginBottom: SIZES.md }}>
+            <Text style={{ fontSize: SIZES.fontSm, fontWeight: '700', color: COLORS.black, marginBottom: 6 }}>✨ AI Brief</Text>
+            <Text style={{ fontSize: SIZES.fontMd, color: COLORS.black, lineHeight: 22, marginBottom: 8 }}>{aiSummary.summary}</Text>
+            {aiSummary.keyTakeaways?.length > 0 && aiSummary.keyTakeaways.map((t, i) => (
+              <Text key={i} style={{ fontSize: SIZES.fontSm, color: COLORS.textSecondary, marginBottom: 2 }}>• {t}</Text>
+            ))}
+            {aiSummary.sentiment && (
+              <Text style={{ fontSize: SIZES.fontXs, color: COLORS.orange, fontWeight: '600', marginTop: 6 }}>
+                Sentiment: {aiSummary.sentiment.toUpperCase()}
               </Text>
-              <View style={styles.aiReplyActions}>
-                <TouchableOpacity style={styles.aiReplyBtn}>
-                  <Text style={styles.aiReplyBtnText}>Edit</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.aiReplyBtn, styles.aiReplyBtnPrimary]}>
-                  <Text style={[styles.aiReplyBtnText, { color: COLORS.white }]}>Send Reply</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
+            )}
           </Card>
-        ))}
-      </ScrollView>
-    </View>
-  );
-};
-
-// ============== HOME COMMAND FEATURES ==============
-
-// Voice Routines Screen
-export const VoiceRoutinesScreen = ({ navigation }) => {
-  const routines = [
-    {
-      id: 1,
-      name: 'GOODNIGHT',
-      emoji: '🌙',
-      trigger: '"Hey Metio, goodnight"',
-      actions: ['🔒 Lock doors', '💡 Lights off', '🚨 Arm alarm', '🌡️ Set to 68°'],
-      active: true,
-    },
-    {
-      id: 2,
-      name: 'GOOD MORNING',
-      emoji: '☀️',
-      trigger: '"Hey Metio, good morning"',
-      actions: ['☕ Start coffee', '💡 Lights on', '📰 Play news'],
-      active: true,
-    },
-    {
-      id: 3,
-      name: 'MOVIE TIME',
-      emoji: '🎬',
-      trigger: '"Hey Metio, movie time"',
-      actions: ['💡 Dim lights', '📺 Turn on TV', '🔇 Do not disturb'],
-      active: false,
-    },
-  ];
-
-  return (
-    <View style={styles.container}>
-      <Header
-        variant="orange"
-        title={"VOICE\nROUTINES"}
-        showBack={true}
-        onBackPress={() => navigation.goBack()}
-        statusText="Listening"
-        statusActive={true}
-      />
-
-      <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
-        {/* Voice Prompt */}
-        <Card variant="lavender" style={styles.voicePrompt}>
-          <Text style={styles.voicePromptEmoji}>🎤</Text>
-          <Text style={styles.voicePromptText}>Say a command to trigger a routine</Text>
-        </Card>
-
-        <SectionLabel>Your Routines</SectionLabel>
-        {routines.map((routine) => (
-          <Card 
-            key={routine.id} 
-            variant={routine.active ? 'selected' : 'default'}
-            onPress={() => {}}
+        ) : articles.length > 0 && (
+          <TouchableOpacity
+            style={{ backgroundColor: COLORS.white, borderRadius: SIZES.radiusMd, padding: SIZES.md, marginBottom: SIZES.md, alignItems: 'center', borderWidth: 2, borderColor: COLORS.orange }}
+            onPress={fetchAISummary}
+            disabled={loadingSummary}
           >
-            <View style={styles.routineHeader}>
-              <Text style={styles.routineEmoji}>{routine.emoji}</Text>
-              <Text style={styles.routineName}>{routine.name}</Text>
-              <Badge 
-                text={routine.active ? 'Active' : 'Inactive'} 
-                variant={routine.active ? 'active' : 'fyi'} 
-                size="sm" 
-              />
-            </View>
-            <Text style={styles.routineTrigger}>{routine.trigger}</Text>
-            <View style={styles.routineActions}>
-              {routine.actions.map((action, index) => (
-                <View key={index} style={styles.actionChip}>
-                  <Text style={styles.actionChipText}>{action}</Text>
-                </View>
-              ))}
-            </View>
-          </Card>
-        ))}
-
-        <Button
-          title="+ Create New Routine"
-          variant="secondary"
-          style={{ marginTop: SIZES.md }}
-        />
-      </ScrollView>
-    </View>
-  );
-};
-
-// Away Detection Screen
-export const AwayDetectionScreen = ({ navigation }) => {
-  const [awayMode, setAwayMode] = useState(true);
-
-  const devices = [
-    { id: 1, name: 'Thermostat', emoji: '🌡️', status: 'Set to Eco (65°)', active: true },
-    { id: 2, name: 'Lights', emoji: '💡', status: 'All off', active: true },
-    { id: 3, name: 'Cameras', emoji: '📹', status: 'Recording', active: true },
-    { id: 4, name: 'Locks', emoji: '🔒', status: 'All locked', active: true },
-  ];
-
-  return (
-    <View style={styles.container}>
-      <Header
-        variant="orange"
-        title={"AWAY\nDETECTION"}
-        showBack={true}
-        onBackPress={() => navigation.goBack()}
-        statusText="Away Mode"
-        statusActive={awayMode}
-      />
-
-      <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
-        {/* Status Card */}
-        <Card variant={awayMode ? 'selected' : 'default'}>
-          <View style={styles.awayHeader}>
-            <View>
-              <Text style={styles.awayStatus}>{awayMode ? 'Away Mode Active' : 'Home Mode'}</Text>
-              <Text style={styles.awayTime}>Left home 2 hours ago</Text>
-            </View>
-            <View style={[styles.awayIndicator, awayMode && styles.awayIndicatorActive]} />
-          </View>
-        </Card>
-
-        {awayMode && (
-          <AlertBanner
-            emoji="✅"
-            title="Auto-adjustments applied"
-            description="Thermostat, lights, and cameras have been configured for away mode."
-            variant="success"
-          />
+            {loadingSummary ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <ActivityIndicator color={COLORS.black} size="small" />
+                <Text style={{ fontSize: SIZES.fontSm, fontWeight: '600', color: COLORS.black }}>Generating AI summary...</Text>
+              </View>
+            ) : (
+              <Text style={{ fontSize: SIZES.fontSm, fontWeight: '600', color: COLORS.black }}>✨ Generate AI Summary</Text>
+            )}
+          </TouchableOpacity>
         )}
 
-        <SectionLabel>Devices</SectionLabel>
-        <View style={styles.deviceGrid}>
-          {devices.map((device) => (
-            <Card key={device.id} style={styles.deviceCard}>
-              <Text style={styles.deviceEmoji}>{device.emoji}</Text>
-              <Text style={styles.deviceName}>{device.name}</Text>
-              <Text style={styles.deviceStatus}>{device.status}</Text>
-              <View style={[styles.deviceDot, device.active && styles.deviceDotActive]} />
-            </Card>
-          ))}
-        </View>
-
-        <SectionLabel>Settings</SectionLabel>
-        <Card>
-          <ToggleRow
-            title="Auto Away Detection"
-            subtitle="Detect when you leave home (100m radius)"
-            value={true}
-            onValueChange={() => {}}
-          />
-          <ToggleRow
-            title="Auto Eco Mode"
-            subtitle="Adjust thermostat when away"
-            value={true}
-            onValueChange={() => {}}
-          />
-          <ToggleRow
-            title="Camera Recording"
-            subtitle="Start recording when away"
-            value={true}
-            onValueChange={() => {}}
-            style={{ borderBottomWidth: 0 }}
-          />
-        </Card>
+        {/* Loading State */}
+        {loading ? (
+          <View style={{ alignItems: 'center', paddingVertical: 40 }}>
+            <ActivityIndicator size="large" color={COLORS.orange} />
+            <Text style={{ fontSize: SIZES.fontSm, color: COLORS.textSecondary, marginTop: 12 }}>Fetching latest news...</Text>
+          </View>
+        ) : error ? (
+          <Card>
+            <Text style={{ fontSize: SIZES.fontMd, color: COLORS.error, textAlign: 'center', marginBottom: 12 }}>{error}</Text>
+            <Button title="Retry" onPress={() => { setLoading(true); fetchNews(activeCategory); }} />
+          </Card>
+        ) : articles.length === 0 ? (
+          <Card>
+            <Text style={{ fontSize: SIZES.fontMd, color: COLORS.textSecondary, textAlign: 'center' }}>No articles found for this category.</Text>
+          </Card>
+        ) : (
+          <>
+            {/* News Cards */}
+            {articles.map((item) => {
+              const colors = colorMap[item.category] || colorMap.General;
+              return (
+                <TouchableOpacity key={item.id} onPress={() => openArticle(item.url)} activeOpacity={0.7}>
+                  <Card style={styles.newsCard}>
+                    <View style={[styles.newsImage, { backgroundColor: colors[0] }]}>
+                      <Text style={styles.newsEmoji}>{item.emoji || '📰'}</Text>
+                    </View>
+                    <View style={styles.newsContent}>
+                      <Text style={styles.newsMeta}>{item.source} • {item.timeAgo}</Text>
+                      <Text style={styles.newsTitle} numberOfLines={2}>{item.title}</Text>
+                      <Text style={styles.newsSummary} numberOfLines={3}>{item.summary}</Text>
+                    </View>
+                  </Card>
+                </TouchableOpacity>
+              );
+            })}
+          </>
+        )}
       </ScrollView>
     </View>
   );
 };
+
+
+
+
 
 const styles = StyleSheet.create({
   container: {
@@ -768,194 +632,10 @@ const styles = StyleSheet.create({
     fontSize: SIZES.fontSm,
     color: COLORS.textTertiary,
   },
-  // Mention styles
-  mentionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SIZES.sm,
-    marginBottom: SIZES.md,
-  },
-  mentionEmoji: {
-    fontSize: 24,
-  },
-  mentionInfo: {
-    flex: 1,
-  },
-  mentionUser: {
-    fontSize: SIZES.fontMd,
-    fontWeight: '600',
-    color: COLORS.black,
-  },
-  mentionFollowers: {
-    fontSize: SIZES.fontXs,
-    color: COLORS.textSecondary,
-  },
-  mentionTime: {
-    fontSize: SIZES.fontXs,
-    color: COLORS.textTertiary,
-  },
-  mentionText: {
-    fontSize: SIZES.fontMd,
-    color: COLORS.black,
-    lineHeight: 22,
-    marginBottom: SIZES.md,
-  },
-  aiReplyBox: {
-    backgroundColor: COLORS.lavender + '20',
-    borderRadius: SIZES.radiusSm,
-    padding: SIZES.md,
-  },
-  aiReplyHeader: {
-    marginBottom: SIZES.sm,
-  },
-  aiReplyLabel: {
-    fontSize: SIZES.fontXs,
-    fontWeight: '600',
-    color: COLORS.lavender,
-  },
-  aiReplyText: {
-    fontSize: SIZES.fontSm,
-    color: COLORS.black,
-    fontStyle: 'italic',
-    marginBottom: SIZES.md,
-  },
-  aiReplyActions: {
-    flexDirection: 'row',
-    gap: SIZES.sm,
-  },
-  aiReplyBtn: {
-    flex: 1,
-    paddingVertical: SIZES.sm,
-    borderRadius: SIZES.radiusFull,
-    borderWidth: 1,
-    borderColor: COLORS.black,
-    alignItems: 'center',
-  },
-  aiReplyBtnPrimary: {
-    backgroundColor: COLORS.black,
-  },
-  aiReplyBtnText: {
-    fontSize: SIZES.fontSm,
-    fontWeight: '600',
-    color: COLORS.black,
-  },
-  // Routine styles
-  voicePrompt: {
-    alignItems: 'center',
-    paddingVertical: SIZES.xxl,
-  },
-  voicePromptEmoji: {
-    fontSize: 40,
-    marginBottom: SIZES.sm,
-  },
-  voicePromptText: {
-    fontSize: SIZES.fontMd,
-    color: COLORS.white,
-  },
-  routineHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SIZES.sm,
-    marginBottom: 4,
-  },
-  routineEmoji: {
-    fontSize: 24,
-  },
-  routineName: {
-    flex: 1,
-    fontSize: SIZES.fontLg,
-    fontWeight: '700',
-    color: COLORS.black,
-  },
-  routineTrigger: {
-    fontSize: SIZES.fontSm,
-    color: COLORS.textSecondary,
-    marginBottom: SIZES.md,
-  },
-  routineActions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-  },
-  actionChip: {
-    backgroundColor: 'rgba(255,255,255,0.4)',
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 6,
-  },
-  actionChipText: {
-    fontSize: SIZES.fontXs,
-    color: COLORS.black,
-  },
-  // Away detection styles
-  awayHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  awayStatus: {
-    fontSize: SIZES.fontLg,
-    fontWeight: '700',
-    color: COLORS.black,
-  },
-  awayTime: {
-    fontSize: SIZES.fontSm,
-    color: COLORS.textSecondary,
-  },
-  awayIndicator: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: COLORS.textTertiary,
-  },
-  awayIndicatorActive: {
-    backgroundColor: COLORS.success,
-  },
-  deviceGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: SIZES.sm,
-  },
-  deviceCard: {
-    width: '48%',
-    alignItems: 'center',
-    paddingVertical: SIZES.lg,
-    position: 'relative',
-  },
-  deviceEmoji: {
-    fontSize: 32,
-    marginBottom: SIZES.sm,
-  },
-  deviceName: {
-    fontSize: SIZES.fontMd,
-    fontWeight: '600',
-    color: COLORS.black,
-  },
-  deviceStatus: {
-    fontSize: SIZES.fontXs,
-    color: COLORS.textSecondary,
-    textAlign: 'center',
-    marginTop: 4,
-  },
-  deviceDot: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: COLORS.textTertiary,
-  },
-  deviceDotActive: {
-    backgroundColor: COLORS.success,
-  },
 });
 
 export default {
   SmartSchedulingScreen,
   MorningBriefingScreen,
   NewsBriefScreen,
-  MentionAlertsScreen,
-  VoiceRoutinesScreen,
-  AwayDetectionScreen,
 };
