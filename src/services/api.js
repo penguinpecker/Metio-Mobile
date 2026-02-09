@@ -240,6 +240,47 @@ export const notificationsAPI = {
 };
 
 // ==========================================
+// WATCHLIST (PRICE WATCHDOG) API
+// ==========================================
+
+export const watchlistAPI = {
+  scrapeUrl: (url) => apiRequest('/watchlist/scrape', {
+    method: 'POST',
+    body: JSON.stringify({ url }),
+  }),
+
+  getAll: () => apiRequest('/watchlist'),
+
+  add: (url, name, targetPrice = null, currentPrice = 0, imageUrl = null) => apiRequest('/watchlist', {
+    method: 'POST',
+    body: JSON.stringify({ name, url, originalPrice: currentPrice, currentPrice, targetPrice, imageUrl }),
+  }),
+
+  getOne: (id) => apiRequest(`/watchlist/${id}`),
+
+  remove: (id) => apiRequest(`/watchlist/${id}`, { method: 'DELETE' }),
+
+  checkPrices: (id) => {
+    if (id) return apiRequest(`/watchlist/${id}/check-price`, { method: 'POST' });
+    return apiRequest('/watchlist').then(res => {
+      if (res.success && res.data?.items?.length) {
+        return Promise.all(res.data.items.map(item => apiRequest(`/watchlist/${item.id}/check-price`, { method: 'POST' }).catch(() => null)));
+      }
+      return [];
+    });
+  },
+
+  getAlerts: () => apiRequest('/watchlist/alerts'),
+
+  markAlertsRead: (ids) => apiRequest('/watchlist/alerts/mark-read', {
+    method: 'POST',
+    body: JSON.stringify({ ids }),
+  }),
+
+  getStats: () => apiRequest('/watchlist/stats'),
+};
+
+// ==========================================
 // HEALTH CHECK
 // ==========================================
 
@@ -252,5 +293,6 @@ export default {
   activity: activityAPI,
   pendingActions: pendingActionsAPI,
   notifications: notificationsAPI,
+  watchlist: watchlistAPI,
   healthCheck,
 };
